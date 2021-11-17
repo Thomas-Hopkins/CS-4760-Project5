@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
 
     printf("Hello from %d\n", getpid());
 
-    int num_resources = 0;
+    bool has_resources = false;
     bool can_terminate = false;
 
     while (true) {
@@ -69,11 +69,11 @@ int main(int argc, char** argv) {
             exit(sim_pid);
         }
         // 50% chance to release resource if it has one
-        else if ((rand() % 10 > 5) && num_resources > 0) {
+        else if ((rand() % 10 > 5) && has_resources) {
             strncpy(msg.msg_text, "release", MSG_BUFFER_LEN);
             msg.msg_type = getpid();
             send_msg(&msg, OSS_MSG, false);
-            num_resources--;
+            has_resources = false;
         }
         // Try to acquire a resource
         else {
@@ -93,7 +93,7 @@ int main(int argc, char** argv) {
             // Wait for response back to see if we have acquired resource or not
             recieve_msg(&msg, PROC_MSG, true);
             if (strncmp(msg.msg_text, "acquired", MSG_BUFFER_LEN) == 0) {
-                num_resources++;
+                has_resources = true;
             }
         }
     }

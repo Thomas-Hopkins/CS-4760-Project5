@@ -216,7 +216,7 @@ void handle_processes() {
 
     char* cmd = strtok(msg.msg_text, " ");
 
-    fprintf(stderr, "Ran %d and it returned %s", sim_pid, cmd);
+    fprintf(stderr, "Ran %d and it returned %s\n", sim_pid, cmd);
     // If request command
     if (strncmp(cmd, "request", MSG_BUFFER_LEN) == 0) {
         int resources[MAX_RES_INSTANCES];
@@ -225,17 +225,58 @@ void handle_processes() {
             cmd = strtok(NULL, " ");
             resources[i] = atoi(cmd);
         }
+        fprintf(stderr, "\n");
+        // TODO: Check for deadlocks
+
+        // Update allocated 
+        for (int i = 0; i < MAX_RES_INSTANCES; i++) {
+            shared_mem->process_table->allow_res[i] = resources[i];
+        }
+
+        // Send acquired message
         strncpy(msg.msg_text, "acquired", MSG_BUFFER_LEN);
         msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
         send_msg(&msg, PROC_MSG, false);
     }
     else if (strncmp(cmd, "release", MSG_BUFFER_LEN) == 0) {
-        
+        // Release any allocated resources this process has and reset its max resources
+        int num_res = 0;
+        for (int i = 0; i < MAX_RES_INSTANCES; i++) {
+            if (shared_mem->process_table[sim_pid].allow_res[i] > 0) {
+                printf("Releasing resource %d with %d instances\n", i, shared_mem->process_table[sim_pid].allow_res[i]);
+                shared_mem->process_table[sim_pid].allow_res[i] = 0;
+                num_res++;
+            }
+        }
+
+        // If we had no resources notify
+        if (num_res <= 0) {
+            printf("No resources to be released\n");
+        }
     }
     else if (strncmp(cmd, "terminate", MSG_BUFFER_LEN) == 0) {
+        // Release any allocated resources this process has and reset its max resources
+        int num_res = 0;
+        for (int i = 0; i < MAX_RES_INSTANCES; i++) {
+            if (shared_mem->process_table[sim_pid].allow_res[i] > 0) {
+                printf("Releasing resource %d with %d instances\n", i, shared_mem->process_table[sim_pid].allow_res[i]);
+                shared_mem->process_table[sim_pid].max_res[i] = 0;
+                shared_mem->process_table[sim_pid].allow_res[i] = 0;
+                num_res++;
+            }
+        }
 
+        // If we had no resources notify
+        if (num_res <= 0) {
+            printf("No resources to be released\n");
+        }
+
+        // Add some time for handling a process (0.1ms)
+        add_time(&shared_mem->sys_clock, 0, rand() % 100000);
+
+        // Do not requeue this process.
+        return;
     }
-    fprintf(stderr, "\n");
 
     // Re-queue this process
     queue_insert(&proc_queue, sim_pid);

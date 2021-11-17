@@ -215,6 +215,7 @@ void recieve_msg(struct message* msg, int msg_queue, bool wait) {
 	}
 	if (msgrcv(msg_queue_id, msg, sizeof(struct message), msg->msg_type, wait ? 0 : IPC_NOWAIT) < 0) {
 		perror("Could not recieve message");
+		fprintf(stderr, "msg: %s type: %ld queue: %d wait?: %d\n", msg->msg_text, msg->msg_type, msg_queue_id, wait);
 	}
 }
 
@@ -231,5 +232,6 @@ void send_msg(struct message* msg, int msg_queue, bool wait) {
 	}
 	if (msgsnd(msg_queue_id, msg, sizeof(struct message), wait ? 0 : IPC_NOWAIT) < 0) {
 		perror("Could not send message");
+		fprintf(stderr, "msg: %s type: %ld queue: %d wait?: %d\n", msg->msg_text, msg->msg_type, msg_queue_id, wait);
 	}
 }
