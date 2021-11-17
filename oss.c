@@ -162,13 +162,19 @@ void try_spawn_child() {
         // Check process control block availablity
         if (num_children < MAX_PROCESSES) {
             // Find open slot to put pid
-            int i;
-            for (i = 0; i < MAX_PROCESSES; i++) {
-                if (children[i] == 0) break;
+            int sim_pid;
+            for (sim_pid = 0; sim_pid < MAX_PROCESSES; sim_pid++) {
+                if (children[sim_pid] == 0) break;
             }
 
             // Add to process table
-            shared_mem->process_table[i].sim_pid = i;
+            shared_mem->process_table[sim_pid].sim_pid = sim_pid;
+            // initalize maxium and allocated resources for this process
+            for (int i = 0; i < MAX_RES_INSTANCES; i++) {
+                // Random maxium resources this process will use from any given resource descriptor
+                shared_mem->process_table[sim_pid].max_res[i] = rand() % (shared_mem->descriptors[i].resource + 1);
+                shared_mem->process_table[sim_pid].allow_res[i] = 0;
+            }
 
             // Fork and launch child process
             pid_t pid = fork();
@@ -179,11 +185,11 @@ void try_spawn_child() {
             } 
             else {
                 // keep track of child's real pid
-                children[i] = pid;
+                children[sim_pid] = pid;
                 num_children++;
                 // add to queue
-                queue_insert(&proc_queue, i);
-                shared_mem->process_table[i].actual_pid = pid;
+                queue_insert(&proc_queue, sim_pid);
+                shared_mem->process_table[sim_pid].actual_pid = pid;
 
             }
             // Add some time for generating a process (0.1ms)
@@ -208,7 +214,28 @@ void handle_processes() {
     msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
     recieve_msg(&msg, OSS_MSG, true);
 
-    printf("Ran %d and it returned %s\n", sim_pid, msg.msg_text);
+    char* cmd = strtok(msg.msg_text, " ");
+
+    fprintf(stderr, "Ran %d and it returned %s", sim_pid, cmd);
+    // If request command
+    if (strncmp(cmd, "request", MSG_BUFFER_LEN) == 0) {
+        int resources[MAX_RES_INSTANCES];
+        // Get all resources requested
+        for (int i = 0; i < MAX_RES_INSTANCES; i++) {
+            cmd = strtok(NULL, " ");
+            resources[i] = atoi(cmd);
+        }
+        strncpy(msg.msg_text, "acquired", MSG_BUFFER_LEN);
+        msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
+        send_msg(&msg, PROC_MSG, false);
+    }
+    else if (strncmp(cmd, "release", MSG_BUFFER_LEN) == 0) {
+        
+    }
+    else if (strncmp(cmd, "terminate", MSG_BUFFER_LEN) == 0) {
+
+    }
+    fprintf(stderr, "\n");
 
     // Re-queue this process
     queue_insert(&proc_queue, sim_pid);

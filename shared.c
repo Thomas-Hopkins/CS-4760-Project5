@@ -108,6 +108,7 @@ void init_oss(bool create) {
 
 	// Intialize resource descriptors
 	for (int i = 0; i < NUM_RESOURCE_DESC; i++) {
+		// random resource num between 1-10
 		shared_mem->descriptors[i].resource = (rand() % 10) + 1;
 		// 20% chance for resource to be shared
 		shared_mem->descriptors[i].is_shared = (rand() % 20) > 20 ? false : true; 
