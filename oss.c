@@ -13,7 +13,7 @@
 #include "queue.h"
 
 static pid_t children[MAX_PROCESSES];
-static size_t num_children;
+static size_t num_children = 0;
 extern struct oss_shm* shared_mem;
 static struct Queue proc_queue;
 static struct message msg;
@@ -74,7 +74,6 @@ int main(int argc, char** argv) {
 		if (pid > 0) {
             // Clear up this process for future use
             remove_child(pid);
-            num_children--;
 		} 
     }
     dest_oss();
@@ -147,6 +146,8 @@ void remove_child(pid_t pid) {
 		if (children[i] == pid) {
 			// If match, set pid to 0
 			children[i] = 0;
+            num_children--;
+            break;
 		}
 	}
 }
@@ -166,6 +167,9 @@ void try_spawn_child() {
                 if (children[i] == 0) break;
             }
 
+            // Add to process table
+            shared_mem->process_table[i].sim_pid = i;
+
             // Fork and launch child process
             pid_t pid = fork();
             if (pid == 0) {
@@ -178,10 +182,13 @@ void try_spawn_child() {
                 children[i] = pid;
                 num_children++;
                 // add to queue
-                queue_insert(&proc_queue, pid);
+                queue_insert(&proc_queue, i);
+                shared_mem->process_table[i].actual_pid = pid;
+
             }
             // Add some time for generating a process (0.1ms)
             add_time(&shared_mem->sys_clock, 0, rand() % 100000);
+            // Update last run
             add_time(&last_run, shared_mem->sys_clock.seconds, shared_mem->sys_clock.nanoseconds);
         }
     }
@@ -189,39 +196,25 @@ void try_spawn_child() {
 
 // Handle children processes requests over message queues
 void handle_processes() {
-    if (queue_peek(&proc_queue) < 0) return;
+    // Return if no process in queue
+    int sim_pid = queue_pop(&proc_queue);
+    if (sim_pid < 0) return;
     // Get message from queued process
     strncpy(msg.msg_text, "run", MSG_BUFFER_LEN);
-    msg.msg_type = queue_peek(&proc_queue);
+    msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
     send_msg(&msg, PROC_MSG, false);
 
     strncpy(msg.msg_text, "", MSG_BUFFER_LEN);
-    msg.msg_type = queue_peek(&proc_queue);
+    msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
     recieve_msg(&msg, OSS_MSG, true);
 
-    // Get command from message
-    char* cmd = strtok(msg.msg_text, " ");
+    printf("Ran %d and it returned %s\n", sim_pid, msg.msg_text);
 
-    if (strncmp(cmd, "terminate", MSG_BUFFER_LEN) == 0) {
-        // Terminate process and release resources
-        printf("process %ld has terminated\n", msg.msg_type);
-        queue_pop(&proc_queue);
-        return;
-    }
-    else if (strncmp(cmd, "release", MSG_BUFFER_LEN) == 0) {
-        // release resource
-        printf("process %ld released a resource\n", msg.msg_type);
-    }
-    else if (strncmp(cmd, "request", MSG_BUFFER_LEN) == 0) {
-        // request a resource
-        printf("process %ld requested a resource\n", msg.msg_type);
-    }
-    else {
-        perror("Unknown message command");
-    }
+    // Re-queue this process
+    queue_insert(&proc_queue, sim_pid);
 
-    pid_t pid = queue_pop(&proc_queue);
-    queue_insert(&proc_queue, pid);
+    // Add some time for handling a process (0.1ms)
+    add_time(&shared_mem->sys_clock, 0, rand() % 100000);
 }
 
 void save_to_log(char* text) {

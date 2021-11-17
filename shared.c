@@ -108,15 +108,9 @@ void init_oss(bool create) {
 
 	// Intialize resource descriptors
 	for (int i = 0; i < NUM_RESOURCE_DESC; i++) {
-		shared_mem->resources[i].in_use = false;
-		// 20% chance to be shared resource
-		shared_mem->resources[i].is_shared = (rand() % 10) > 2 ? false : true;
-		// Populate initial instances of this resource
-		shared_mem->resources[i].num_instances = (rand() % MAX_RES_INSTANCES) + 1;
-		for (int j = 0; j < MAX_RES_INSTANCES; j++) {
-			shared_mem->resources[i].instances[j] = -1;
-		}
-		// TODO: Maybe assign processes to the initial instance count?
+		shared_mem->descriptors[i].resource = (rand() % 10) + 1;
+		// 20% chance for resource to be shared
+		shared_mem->descriptors[i].is_shared = (rand() % 20) > 20 ? false : true; 
 	}
 
 	// Intialize semaphores w/ initial value of 1

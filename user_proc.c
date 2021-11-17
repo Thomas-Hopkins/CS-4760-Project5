@@ -47,6 +47,8 @@ int main(int argc, char** argv) {
     }
     init_child();
 
+    printf("Hello from %d\n", getpid());
+
     while (true) {
         strncpy(msg.msg_text, "", MSG_BUFFER_LEN);
         msg.msg_type = getpid();
@@ -54,39 +56,11 @@ int main(int argc, char** argv) {
 
         char* cmd = strtok(msg.msg_text, " ");
 
-        if (strncmp(cmd, "resource", MSG_BUFFER_LEN) == 0) {
-            has_resource = true;
-            num_res--;
-        }
-        else if (strncmp(cmd, "run", MSG_BUFFER_LEN) != 0) {
-            perror("Did not recieve run message");
-            continue;
-        }
+        printf("Child %d got message %s\n", getpid(), msg.msg_text);
 
-        // release active resource if we have one
-        if (has_resource) {
-            strncpy(msg.msg_text, "release", MSG_BUFFER_LEN);
-            msg.msg_type = getpid();
-            send_msg(&msg, OSS_MSG, false);
-            has_resource = false;
-        }
-
-        // request resource if we need one
-        if (num_res > 0) {
-            // Request a random resource
-            char msg_buf[MSG_BUFFER_LEN];
-            snprintf(msg_buf, MSG_BUFFER_LEN, "request %d", (rand() % NUM_RESOURCE_DESC + 1));
-            strcpy(msg.msg_text, msg_buf);
-            msg.msg_type = getpid();
-            send_msg(&msg, OSS_MSG, false);
-        }
-        // terminate if we don't need any more resources
-        else {
-            strncpy(msg.msg_text, "terminate", MSG_BUFFER_LEN);
-            msg.msg_type = getpid();
-            send_msg(&msg, OSS_MSG, false);
-            break;
-        }
+        strncpy(msg.msg_text, "recieved", MSG_BUFFER_LEN);
+        msg.msg_type = getpid();
+        send_msg(&msg, OSS_MSG, false);
     }
 
     exit(EXIT_SUCCESS);

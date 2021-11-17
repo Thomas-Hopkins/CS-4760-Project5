@@ -30,15 +30,21 @@ struct message {
 };
 
 struct res_descr {
-    bool in_use;
+    int resource;
     bool is_shared;
-    size_t num_instances;
-    int instances[MAX_RES_INSTANCES];
+};
+
+struct process_ctrl_block {
+    unsigned int sim_pid;
+    pid_t actual_pid;
+    int max_res[MAX_RES_INSTANCES];
+    int allow_res[MAX_RES_INSTANCES];
 };
 
 struct oss_shm {
     struct time_clock sys_clock;
-    struct res_descr resources[NUM_RESOURCE_DESC];
+    struct process_ctrl_block process_table[MAX_PROCESSES];
+    struct res_descr descriptors[MAX_RES_INSTANCES];
 };
 
 void dest_oss();
