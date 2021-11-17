@@ -43,6 +43,7 @@ int getsemaphores(int token, int sem_num) {
 
 // private function to block use of critical resource until it has been unlocked
 void lock(int num) {
+	num -= 1;
 	struct sembuf myop[1];
 	myop->sem_num = (short)num;
 	myop->sem_op = (short)-1;
@@ -53,6 +54,7 @@ void lock(int num) {
 
 // Private function to unlock critical resource
 void unlock(int num) {
+	num -= 1;
 	struct sembuf myop[1];
 	myop->sem_num = (short)num;
 	myop->sem_op = (short)1;

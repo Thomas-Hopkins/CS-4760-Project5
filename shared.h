@@ -10,7 +10,7 @@
 #define MAX_RES_INSTANCES 10
 
 enum Shared_Mem_Tokens {OSS_SHM, OSS_SEM, OSS_MSG, PROC_MSG};
-enum Semaphore_Ids {SYSCLK_SEM, FINAL_SEMIDS_SIZE};
+enum Semaphore_Ids {BEGIN_SEMIDS, SYSCLK_SEM, FINAL_SEMIDS_SIZE};
 
 union semun {
     int val;

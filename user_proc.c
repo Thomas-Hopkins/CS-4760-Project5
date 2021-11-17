@@ -8,7 +8,8 @@
 #include "config.h"
 
 extern struct oss_shm* shared_mem;
-static struct message msg; 
+static struct message msg;
+static struct time_clock endtime;
 static char* exe_name;
 static int sim_pid;
 
@@ -21,6 +22,11 @@ void init_child() {
     // Init rand gen, shared mem, and msg queues
     srand((int)time(NULL) + getpid());
     init_oss(false);
+
+    // Calculate a random endtime about 1-5 seconds after current sys time
+    endtime.nanoseconds = (rand() % 100000000) + 1000;
+    endtime.seconds = (rand() % 5) + 1;
+    add_time(&endtime, shared_mem->sys_clock.seconds, shared_mem->sys_clock.nanoseconds);
 }
 
 int main(int argc, char** argv) {
@@ -43,8 +49,6 @@ int main(int argc, char** argv) {
     }
     init_child();
 
-    printf("Hello from %d\n", getpid());
-
     bool has_resources = false;
     bool can_terminate = false;
 
@@ -55,12 +59,11 @@ int main(int argc, char** argv) {
 
         char* cmd = strtok(msg.msg_text, " ");
 
-        printf("Child %d got message %s, cmd: %s\n", getpid(), msg.msg_text, cmd);
+        // See if enough time has passed to terminate process
+        if (shared_mem->sys_clock.seconds > endtime.seconds && shared_mem->sys_clock.nanoseconds > endtime.nanoseconds) {
+            can_terminate = true;
+        }
 
-
-        // snprintf(msg.msg_text, MSG_BUFFER_LEN, "request");
-        // msg.msg_type = getpid();
-        // send_msg(&msg, OSS_MSG, false);
         // If this process can terminate terminiate it
         if (can_terminate) {
             strncpy(msg.msg_text, "terminate", MSG_BUFFER_LEN);
@@ -85,7 +88,6 @@ int main(int argc, char** argv) {
                 snprintf(resource_requested, MSG_BUFFER_LEN, " %d", rand() % max);
                 strncat(msg.msg_text, resource_requested, MSG_BUFFER_LEN - strlen(msg.msg_text));
             }
-            fprintf(stderr, "req: %s\n", msg.msg_text);
             // Send request for resource
             msg.msg_type = getpid();
             send_msg(&msg, OSS_MSG, false);
