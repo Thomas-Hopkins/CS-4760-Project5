@@ -10,13 +10,16 @@
 
 #include "shared.h"
 #include "config.h"
+#include "queue.h"
 
-pid_t children[MAX_PROCESSES];
-size_t num_children;
+static pid_t children[MAX_PROCESSES];
+static size_t num_children;
 extern struct oss_shm* shared_mem;
+static struct Queue proc_queue;
+static struct message msg;
 static char* exe_name;
 static int log_line = 0;
-static int max_secs = 10;
+static int max_secs = 100;
 static struct time_clock last_run;
 
 void help();
@@ -24,6 +27,7 @@ void signal_handler(int signum);
 void initialize();
 int launch_child();
 void try_spawn_child();
+void handle_processes();
 void remove_child(pid_t pid);
 void save_to_log(char* text);
 
@@ -62,12 +66,15 @@ int main(int argc, char** argv) {
         // try to spawn a new child if enough time has passed
         try_spawn_child();
 
+        // Handle process requests 
+        handle_processes();
+
         // See if any child processes have terminated
         pid_t pid = waitpid(-1, NULL, WNOHANG);
 		if (pid > 0) {
             // Clear up this process for future use
             remove_child(pid);
-            // num_children--;
+            num_children--;
 		} 
     }
     dest_oss();
@@ -94,6 +101,8 @@ void signal_handler(int signum) {
     for (int i = 0; i < MAX_PROCESSES; i++) {
         if (children[i] > 0) {
             kill(children[i], SIGKILL);
+            children[i] = 0;
+            num_children--;
         }
     }
 
@@ -101,7 +110,7 @@ void signal_handler(int signum) {
     dest_oss();
 
     if (signum == SIGINT) exit(EXIT_SUCCESS);
-	if (signum == SIGALRM) exit(EXIT_FAILURE);
+	if (signum == SIGALRM) exit(EXIT_SUCCESS);
 }
 
 void initialize() {
@@ -110,6 +119,9 @@ void initialize() {
 
     // Attach to and initialize shared memory.
     init_oss(true);
+
+    // initialize process queue
+    queue_init(&proc_queue);
 
     // Initialize children array
     for (int i = 0; i < MAX_PROCESSES; i++) {
@@ -141,8 +153,11 @@ void remove_child(pid_t pid) {
 
 void try_spawn_child() {
     // Check if enough time has passed on simulated sys clock to spawn new child
-    if ((shared_mem->sys_clock.seconds - last_run.seconds > maxTimeBetweenNewProcsSecs) && 
-    (shared_mem->sys_clock.nanoseconds - last_run.nanoseconds > maxTimeBetweenNewProcsNS)) {
+    // Time needed is calculated randomly to give some random offset between processes
+    int seconds = (rand() % (maxTimeBetweenNewProcsSecs + 1)) + minTimeBetweenNewProcsSecs;
+    int nansecs = (rand() % (maxTimeBetweenNewProcsNS + 1)) + minTimeBetweenNewProcsNS;
+    if ((shared_mem->sys_clock.seconds - last_run.seconds > seconds) && 
+    (shared_mem->sys_clock.nanoseconds - last_run.nanoseconds > nansecs)) {
         // Check process control block availablity
         if (num_children < MAX_PROCESSES) {
             // Find open slot to put pid
@@ -159,14 +174,54 @@ void try_spawn_child() {
                 }
             } 
             else {
+                // keep track of child's real pid
                 children[i] = pid;
                 num_children++;
+                // add to queue
+                queue_insert(&proc_queue, pid);
             }
-            // Add some time for generating a process
-            add_time(&shared_mem->sys_clock, 2, rand() % 1000);
+            // Add some time for generating a process (0.1ms)
+            add_time(&shared_mem->sys_clock, 0, rand() % 100000);
             add_time(&last_run, shared_mem->sys_clock.seconds, shared_mem->sys_clock.nanoseconds);
         }
     }
+}
+
+// Handle children processes requests over message queues
+void handle_processes() {
+    if (queue_peek(&proc_queue) < 0) return;
+    // Get message from queued process
+    strncpy(msg.msg_text, "run", MSG_BUFFER_LEN);
+    msg.msg_type = queue_peek(&proc_queue);
+    send_msg(&msg, PROC_MSG, false);
+
+    strncpy(msg.msg_text, "", MSG_BUFFER_LEN);
+    msg.msg_type = queue_peek(&proc_queue);
+    recieve_msg(&msg, OSS_MSG, true);
+
+    // Get command from message
+    char* cmd = strtok(msg.msg_text, " ");
+
+    if (strncmp(cmd, "terminate", MSG_BUFFER_LEN) == 0) {
+        // Terminate process and release resources
+        printf("process %ld has terminated\n", msg.msg_type);
+        queue_pop(&proc_queue);
+        return;
+    }
+    else if (strncmp(cmd, "release", MSG_BUFFER_LEN) == 0) {
+        // release resource
+        printf("process %ld released a resource\n", msg.msg_type);
+    }
+    else if (strncmp(cmd, "request", MSG_BUFFER_LEN) == 0) {
+        // request a resource
+        printf("process %ld requested a resource\n", msg.msg_type);
+    }
+    else {
+        perror("Unknown message command");
+    }
+
+    pid_t pid = queue_pop(&proc_queue);
+    queue_insert(&proc_queue, pid);
 }
 
 void save_to_log(char* text) {

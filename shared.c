@@ -14,6 +14,7 @@
 struct oss_shm* shared_mem = NULL;
 static int semaphore_id = -1;
 static int oss_msg_queue;
+static int proc_msg_queue;
 
 // Private function to get shared memory key
 int get_shm(int token) {
@@ -78,19 +79,22 @@ void init_oss(bool create) {
 
 	// Get message queue
 	key_t oss_msg_key = ftok(SHM_FILE, OSS_MSG);
+	key_t proc_msg_key = ftok(SHM_FILE, PROC_MSG);
 
-	if (oss_msg_key < 0) {
-        printf("Could not get message queue(s) file.");
+	if (oss_msg_key < 0 || proc_msg_key < 0) {
+        perror("Could not get message queue(s) file");
 	}
 
 	if (create) {
 		oss_msg_queue = msgget(oss_msg_key, 0644 | IPC_CREAT);
+		proc_msg_queue = msgget(proc_msg_key, 0644 | IPC_CREAT);
 	}
 	else {
 		oss_msg_queue = msgget(oss_msg_key, 0644 | IPC_EXCL);
+		proc_msg_queue = msgget(proc_msg_key, 0644 | IPC_EXCL);
 	}
 
-	if (oss_msg_queue < 0) {
+	if (oss_msg_queue < 0 || proc_msg_queue < 0) {
         printf("Could not attach to message queue(s).");
 	}
 
@@ -102,6 +106,19 @@ void init_oss(bool create) {
 	shared_mem->sys_clock.seconds = 0;
 	shared_mem->sys_clock.nanoseconds = 0;
 
+	// Intialize resource descriptors
+	for (int i = 0; i < NUM_RESOURCE_DESC; i++) {
+		shared_mem->resources[i].in_use = false;
+		// 20% chance to be shared resource
+		shared_mem->resources[i].is_shared = (rand() % 10) > 2 ? false : true;
+		// Populate initial instances of this resource
+		shared_mem->resources[i].num_instances = (rand() % MAX_RES_INSTANCES) + 1;
+		for (int j = 0; j < MAX_RES_INSTANCES; j++) {
+			shared_mem->resources[i].instances[j] = -1;
+		}
+		// TODO: Maybe assign processes to the initial instance count?
+	}
+
 	// Intialize semaphores w/ initial value of 1
 	union semun arg;
 	arg.val = 1;
@@ -110,7 +127,6 @@ void init_oss(bool create) {
 			perror("Failed to intialize a semaphore");
 		}
 	}
-
 }
 
 // Public function to destruct oss shared resources
@@ -133,6 +149,9 @@ void dest_oss() {
 
 	// remove message queues
 	if (msgctl(oss_msg_queue, IPC_RMID, NULL) < 0) {
+		perror("Could not detach message queue");
+	}
+	if (msgctl(proc_msg_queue, IPC_RMID, NULL) < 0) {
 		perror("Could not detach message queue");
 	}
 }
@@ -188,24 +207,34 @@ void sub_time(struct time_clock* Time, unsigned long seconds, unsigned long nano
 	if (Time->semaphore_id > 0) unlock(Time->semaphore_id);
 }
 
-int recieve_msg(struct message* msg, int msg_queue, bool wait) {
+void recieve_msg(struct message* msg, int msg_queue, bool wait) {
 	int msg_queue_id;
 	if (msg_queue == OSS_MSG) {
 		msg_queue_id = oss_msg_queue;
 	}
+	else if (msg_queue == PROC_MSG) {
+		msg_queue_id = proc_msg_queue;
+	}
 	else {
 		printf("Got unexpected message queue ID of %d\n", msg_queue);
 	}
-	return msgrcv(msg_queue_id, msg, sizeof(struct message), msg->msg_type, wait ? 0 : IPC_NOWAIT);
+	if (msgrcv(msg_queue_id, msg, sizeof(struct message), msg->msg_type, wait ? 0 : IPC_NOWAIT) < 0) {
+		perror("Could not recieve message");
+	}
 }
 
-int send_msg(struct message* msg, int msg_queue, bool wait) {
+void send_msg(struct message* msg, int msg_queue, bool wait) {
 	int msg_queue_id;
 	if (msg_queue == OSS_MSG) {
 		msg_queue_id = oss_msg_queue;
 	}
+	else if (msg_queue == PROC_MSG) {
+		msg_queue_id = proc_msg_queue;
+	}
 	else {
 		printf("Got unexpected message queue ID of %d\n", msg_queue);
 	}
-	return msgsnd(msg_queue_id, msg, sizeof(struct message), wait ? 0 : IPC_NOWAIT);
+	if (msgsnd(msg_queue_id, msg, sizeof(struct message), wait ? 0 : IPC_NOWAIT) < 0) {
+		perror("Could not send message");
+	}
 }

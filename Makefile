@@ -2,8 +2,8 @@ CC = gcc
 CFLAGS = -Wall -g
 
 EXE = oss user_proc
-DEPS = shared.h
-OBJS = shared.o
+DEPS = shared.h queue.h
+OBJS = shared.o queue.o
 
 CLEAN = $(EXE) *.o $(OBJS) logfile
 

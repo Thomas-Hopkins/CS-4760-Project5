@@ -7,8 +7,9 @@
 #define SHM_FILE "shmOSS.shm"
 #define MSG_BUFFER_LEN 2048
 #define NUM_RESOURCE_DESC 20
+#define MAX_RES_INSTANCES 10
 
-enum Shared_Mem_Tokens {OSS_SHM, OSS_SEM, OSS_MSG};
+enum Shared_Mem_Tokens {OSS_SHM, OSS_SEM, OSS_MSG, PROC_MSG};
 enum Semaphore_Ids {SYSCLK_SEM, FINAL_SEMIDS_SIZE};
 
 union semun {
@@ -29,7 +30,10 @@ struct message {
 };
 
 struct res_descr {
-
+    bool in_use;
+    bool is_shared;
+    size_t num_instances;
+    int instances[MAX_RES_INSTANCES];
 };
 
 struct oss_shm {
@@ -41,8 +45,8 @@ void dest_oss();
 void init_oss(bool create);
 void add_time(struct time_clock* Time, unsigned long seconds, unsigned long nanoseconds);
 void sub_time(struct time_clock* Time, unsigned long seconds, unsigned long nanoseconds);
-int recieve_msg(struct message* msg, int msg_queue, bool wait);
-int send_msg(struct message* msg, int msg_queue, bool wait);
+void recieve_msg(struct message* msg, int msg_queue, bool wait);
+void send_msg(struct message* msg, int msg_queue, bool wait);
 
 
 #endif
