@@ -1,0 +1,46 @@
+|----    README PROJECT 5    -----|
+|---- AUTHOR: Thomas Hopkins -----|
+|----  UMSL CMPSCI-4760-002  -----|
+
+|- COMPILING -|
+The provided Makefile will build the two executables "oss" and
+    "user_proc"
+Simply run "make" and the two  executables will be outputted.
+    See the USAGE section below to see how to run the programs.
+A cleaning function is provided. run "make clean" to clean up
+	the directory and leave only src behind.
+
+
+|- USAGE -|
+The "oss" executable is intended to simulate process deadlock detection
+    for an operating system.
+
+The oss executable takes no arguments.
+
+The user-proc excutable is run by oss. It is not intended to be run alone.
+    However, it takes one argument from oss. This being the following:
+[-p pid] The simulated pid of the process
+
+
+|- FUNCTIONALITY -|
+The oss executable will generate a number of children processes. And add
+them to a schedule queue. It then runs these processes by selection from the
+queu eand sees if the resources it has requested are safe.
+
+user_proc will generate a random time in the future in which it will terminate. 
+Until it reaches this simulated sys clock time it will continue requesting some
+random resources over the message queue. If it has successfully recieved some
+resources it will release them in the future.
+
+The oss will handle these requests for resources, releases, and terminations from
+the user_proc processes. Upon a request for resources it will run the deadlock
+detection algorithm as seen in the function "is_safe". If this passes the oss
+gives the resources, if not it does not. These processes will be re-queued for 
+future runs.
+
+Terminated and released process requests will have their resources released and 
+terminated processes will be removed from the queue and not re-queued so that a future
+process can take it's place.
+
+
+|- KNOWN ISSUES/LIMITATIONS -|

@@ -49,7 +49,7 @@ void lock(int num) {
 	myop->sem_op = (short)-1;
 	myop->sem_flg = (short)0;
 	if ((semop(semaphore_id, myop, 1)) == -1) perror("Could not lock!");
-	fprintf(stderr, "%d: Got lock on critical resource %d\n", getpid(), num);
+	// fprintf(stderr, "%d: Got lock on critical resource %d\n", getpid(), num);
 }
 
 // Private function to unlock critical resource
@@ -60,7 +60,7 @@ void unlock(int num) {
 	myop->sem_op = (short)1;
 	myop->sem_flg = (short)0;
 	if ((semop(semaphore_id, myop, 1)) == -1) perror("Could not unlock!");
-	fprintf(stderr, "%d: Released lock on critical resource %d\n", getpid(), num);
+	// fprintf(stderr, "%d: Released lock on critical resource %d\n", getpid(), num);
 } 
 
 // Public function to initalize the oss shared resources
@@ -109,7 +109,7 @@ void init_oss(bool create) {
 	shared_mem->sys_clock.nanoseconds = 0;
 
 	// Intialize resource descriptors
-	for (int i = 0; i < NUM_RESOURCE_DESC; i++) {
+	for (int i = 0; i < MAX_RES_INSTANCES; i++) {
 		// random resource num between 1-10
 		shared_mem->descriptors[i].resource = (rand() % 10) + 1;
 		// 20% chance for resource to be shared

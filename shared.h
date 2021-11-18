@@ -2,12 +2,7 @@
 #define __SHARED_H
 
 #include <stdbool.h>
-
-#define MAX_PROCESSES 18
-#define SHM_FILE "shmOSS.shm"
-#define MSG_BUFFER_LEN 2048
-#define NUM_RESOURCE_DESC 20
-#define MAX_RES_INSTANCES 10
+#include "config.h"
 
 enum Shared_Mem_Tokens {OSS_SHM, OSS_SEM, OSS_MSG, PROC_MSG};
 enum Semaphore_Ids {BEGIN_SEMIDS, SYSCLK_SEM, FINAL_SEMIDS_SIZE};

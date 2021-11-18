@@ -16,10 +16,11 @@ static pid_t children[MAX_PROCESSES];
 static size_t num_children = 0;
 extern struct oss_shm* shared_mem;
 static struct Queue proc_queue;
+static struct Queue copy_queue;
 static struct message msg;
 static char* exe_name;
 static int log_line = 0;
-static int max_secs = 100;
+static int total_procs = 0;
 static struct time_clock last_run;
 
 void help();
@@ -27,6 +28,7 @@ void signal_handler(int signum);
 void initialize();
 int launch_child();
 void try_spawn_child();
+bool is_safe(int sim_pid, int resources[MAX_RES_INSTANCES]);
 void handle_processes();
 void remove_child(pid_t pid);
 void save_to_log(char* text);
@@ -74,7 +76,12 @@ int main(int argc, char** argv) {
 		if (pid > 0) {
             // Clear up this process for future use
             remove_child(pid);
-		} 
+		}
+
+        // If we've run all the processes we need and have no more children we can exit
+        if (total_procs > MAX_RUN_PROCS && queue_is_empty(&proc_queue)) {
+            break;
+        } 
     }
     dest_oss();
     exit(EXIT_SUCCESS);
@@ -93,7 +100,7 @@ void signal_handler(int signum) {
 		fprintf(stderr, "\nRecieved SIGINT signal interrupt, terminating children.\n");
 	}
 	else if (signum == SIGALRM) {
-		fprintf(stderr, "\nProcess execution timeout. Failed to finish in %d seconds.\n", max_secs);
+		fprintf(stderr, "\nProcess execution timeout. Failed to finish in %d seconds.\n", MAX_RUNTIME);
 	}
 
     // Kill active children
@@ -131,8 +138,8 @@ void initialize() {
 	signal(SIGINT, signal_handler);
 	signal(SIGALRM, signal_handler);
 
-	// Terminate in max_secs	
-	alarm(max_secs);
+	// Terminate in MAX_RUNTIME	
+	alarm(MAX_RUNTIME);
 }
 
 int launch_child() {
@@ -153,6 +160,7 @@ void remove_child(pid_t pid) {
 }
 
 void try_spawn_child() {
+    if (total_procs > MAX_RUN_PROCS) return;
     // Check if enough time has passed on simulated sys clock to spawn new child
     // Time needed is calculated randomly to give some random offset between processes
     int seconds = (rand() % (maxTimeBetweenNewProcsSecs + 1)) + minTimeBetweenNewProcsSecs;
@@ -181,6 +189,7 @@ void try_spawn_child() {
             if (pid == 0) {
                 if (launch_child() < 0) {
                     printf("Failed to launch process.\n");
+                    exit(EXIT_FAILURE);
                 }
             } 
             else {
@@ -190,7 +199,7 @@ void try_spawn_child() {
                 // add to queue
                 queue_insert(&proc_queue, sim_pid);
                 shared_mem->process_table[sim_pid].actual_pid = pid;
-
+                total_procs++;
             }
             // Add some time for generating a process (0.1ms)
             add_time(&shared_mem->sys_clock, 0, rand() % 100000);
@@ -203,7 +212,7 @@ void try_spawn_child() {
 // Handle children processes requests over message queues
 void handle_processes() {
     // Return if no process in queue
-    int sim_pid = queue_pop(&proc_queue);
+    int sim_pid = queue_peek(&proc_queue);
     if (sim_pid < 0) return;
     // Get message from queued process
     strncpy(msg.msg_text, "run", MSG_BUFFER_LEN);
@@ -225,18 +234,27 @@ void handle_processes() {
             cmd = strtok(NULL, " ");
             resources[i] = atoi(cmd);
         }
-        fprintf(stderr, "\n");
-        // TODO: Check for deadlocks
 
         // Update allocated 
         for (int i = 0; i < MAX_RES_INSTANCES; i++) {
             shared_mem->process_table->allow_res[i] = resources[i];
         }
 
-        // Send acquired message
-        strncpy(msg.msg_text, "acquired", MSG_BUFFER_LEN);
-        msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
-        send_msg(&msg, PROC_MSG, false);
+        // If we are deadlock safe then we can move on
+        if (is_safe(sim_pid, resources)) {
+
+            // Send acquired message
+            strncpy(msg.msg_text, "acquired", MSG_BUFFER_LEN);
+            msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
+            send_msg(&msg, PROC_MSG, false);
+            save_to_log("SAFE RUN");
+        }
+        else {
+            fprintf(stderr, "UNSAFE DETECTED\n");
+            strncpy(msg.msg_text, "unsafe", MSG_BUFFER_LEN);
+            msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
+            send_msg(&msg, PROC_MSG, false);
+        }
     }
     else if (strncmp(cmd, "release", MSG_BUFFER_LEN) == 0) {
         // Release any allocated resources this process has and reset its max resources
@@ -275,14 +293,83 @@ void handle_processes() {
         add_time(&shared_mem->sys_clock, 0, rand() % 100000);
 
         // Do not requeue this process.
+        sim_pid = queue_pop(&proc_queue);
+        remove_child(shared_mem->process_table[sim_pid].actual_pid);
         return;
     }
 
     // Re-queue this process
+    queue_pop(&proc_queue);
     queue_insert(&proc_queue, sim_pid);
 
     // Add some time for handling a process (0.1ms)
     add_time(&shared_mem->sys_clock, 0, rand() % 100000);
+}
+
+bool is_safe(int sim_pid, int requests[MAX_RES_INSTANCES]) {
+
+    memcpy(&copy_queue, &proc_queue, sizeof(struct Queue));
+    int size = copy_queue.size;
+    int curr_elm = queue_pop(&copy_queue);
+    int maximum[size][MAX_RES_INSTANCES];
+    int allocated[size][MAX_RES_INSTANCES];
+    int need[size][MAX_RES_INSTANCES];
+    int available[MAX_RES_INSTANCES];
+    int num_avail = 0;
+
+    // Copy over available non-shared resource data
+    for (int i = 0; i < MAX_RES_INSTANCES; i++) {
+        // if (shared_mem->descriptors[i].is_shared) continue;
+        available[i] = shared_mem->descriptors[i].resource;
+        num_avail++;
+    }
+
+    // get all processes resource data into maximum and allocated matrixes
+    for (int i = 0; i < size; i++) {
+
+        for (int j = 0; j < MAX_RES_INSTANCES; j++) {
+            maximum[i][j] = shared_mem->process_table[curr_elm].max_res[j];
+            allocated[i][j] = shared_mem->process_table[curr_elm].allow_res[j];
+        }
+        curr_elm = queue_pop(&copy_queue);
+    }
+
+    // Calculate needed matrix
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < MAX_RES_INSTANCES; j++) {
+            need[i][j] = maximum[i][j] - allocated[i][j]; 
+        }
+    }
+
+    int index = 0;
+    memcpy(&copy_queue, &proc_queue, sizeof(struct Queue));
+    curr_elm = queue_pop(&copy_queue);
+    while (!queue_is_empty(&copy_queue)) {
+        if (curr_elm == sim_pid) break;
+        index++;
+        curr_elm = queue_pop(&copy_queue);
+    }
+
+    // resource request algo
+    for (int i = 0; i < MAX_RES_INSTANCES; i++) {
+        if (need[index][i] < requests[i]) {
+
+            // Unsafe
+            return false;
+        }
+
+        if (requests[i] <= available[i]) {
+            available[i] -= requests[i];
+            allocated[index][i] += requests[i];
+            need[index][i] -= requests[i];
+        }
+        else {
+            // Unsafe
+            return false;
+        }
+    }
+
+    return true;
 }
 
 void save_to_log(char* text) {

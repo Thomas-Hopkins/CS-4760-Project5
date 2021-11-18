@@ -57,8 +57,6 @@ int main(int argc, char** argv) {
         msg.msg_type = getpid();
         recieve_msg(&msg, PROC_MSG, true);
 
-        char* cmd = strtok(msg.msg_text, " ");
-
         // See if enough time has passed to terminate process
         if (shared_mem->sys_clock.seconds > endtime.seconds && shared_mem->sys_clock.nanoseconds > endtime.nanoseconds) {
             can_terminate = true;
