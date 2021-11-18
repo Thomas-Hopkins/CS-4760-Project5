@@ -23,6 +23,15 @@ static int log_line = 0;
 static int total_procs = 0;
 static struct time_clock last_run;
 
+struct statistics {
+    unsigned int granted_requests;
+    unsigned int denied_requests;
+    unsigned int terminations;
+    unsigned int releases;
+};
+
+static struct statistics stats;
+
 void help();
 void signal_handler(int signum);
 void initialize();
@@ -31,6 +40,8 @@ void try_spawn_child();
 bool is_safe(int sim_pid, int resources[MAX_RES_INSTANCES]);
 void handle_processes();
 void remove_child(pid_t pid);
+void matrix_to_string(char* buffer, size_t buffer_size, int* matrix, int rows, int cols);
+void output_stats();
 void save_to_log(char* text);
 
 int main(int argc, char** argv) {
@@ -83,6 +94,7 @@ int main(int argc, char** argv) {
             break;
         } 
     }
+    output_stats();
     dest_oss();
     exit(EXIT_SUCCESS);
 }
@@ -112,6 +124,8 @@ void signal_handler(int signum) {
         }
     }
 
+    output_stats();
+
     // Cleanup oss shared memory
     dest_oss();
 
@@ -133,6 +147,12 @@ void initialize() {
     for (int i = 0; i < MAX_PROCESSES; i++) {
         children[i] = 0;
     }
+
+    // init stats
+    stats.granted_requests = 0;
+    stats.denied_requests = 0;
+    stats.releases = 0;
+    stats.terminations = 0;
 
     // Setup signal handlers
 	signal(SIGINT, signal_handler);
@@ -225,7 +245,6 @@ void handle_processes() {
 
     char* cmd = strtok(msg.msg_text, " ");
 
-    fprintf(stderr, "Ran %d and it returned %s\n", sim_pid, cmd);
     // If request command
     if (strncmp(cmd, "request", MSG_BUFFER_LEN) == 0) {
         int resources[MAX_RES_INSTANCES];
@@ -247,13 +266,13 @@ void handle_processes() {
             strncpy(msg.msg_text, "acquired", MSG_BUFFER_LEN);
             msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
             send_msg(&msg, PROC_MSG, false);
-            save_to_log("SAFE RUN");
+            stats.granted_requests++;
         }
         else {
-            fprintf(stderr, "UNSAFE DETECTED\n");
             strncpy(msg.msg_text, "unsafe", MSG_BUFFER_LEN);
             msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
             send_msg(&msg, PROC_MSG, false);
+            stats.denied_requests++;
         }
     }
     else if (strncmp(cmd, "release", MSG_BUFFER_LEN) == 0) {
@@ -266,6 +285,7 @@ void handle_processes() {
                 num_res++;
             }
         }
+        stats.releases++;
 
         // If we had no resources notify
         if (num_res <= 0) {
@@ -283,6 +303,7 @@ void handle_processes() {
                 num_res++;
             }
         }
+        stats.terminations++;
 
         // If we had no resources notify
         if (num_res <= 0) {
@@ -341,6 +362,26 @@ bool is_safe(int sim_pid, int requests[MAX_RES_INSTANCES]) {
         }
     }
 
+    // Output if in verbose mode and every 20 successful requests
+    if (VERBOSE_MODE && ((stats.granted_requests % 20) == 0)) {
+        int buf_size = size * MAX_RES_INSTANCES * 8;
+        char buf[buf_size];
+        matrix_to_string(buf, buf_size, &need[0][0], size, MAX_RES_INSTANCES);
+        save_to_log(buf);
+
+        matrix_to_string(buf, buf_size, &maximum[0][0], size, MAX_RES_INSTANCES);
+        save_to_log(buf);
+
+        matrix_to_string(buf, buf_size, &allocated[0][0], size, MAX_RES_INSTANCES);
+        save_to_log(buf);
+
+        matrix_to_string(buf, buf_size, available, 1, MAX_RES_INSTANCES);
+        save_to_log(buf);
+
+        matrix_to_string(buf, buf_size, requests, 1, MAX_RES_INSTANCES);
+        save_to_log(buf);
+    }
+
     int index = 0;
     memcpy(&copy_queue, &proc_queue, sizeof(struct Queue));
     curr_elm = queue_pop(&copy_queue);
@@ -370,6 +411,44 @@ bool is_safe(int sim_pid, int requests[MAX_RES_INSTANCES]) {
     }
 
     return true;
+}
+
+void matrix_to_string(char* dest, size_t buffer_size, int* matrix, int rows, int cols) {
+    strncpy(dest, "", buffer_size);
+    char buffer[buffer_size];
+    strncat(dest, "    ", buffer_size);
+    for (int i = 1; i <= MAX_RES_INSTANCES; i++) {
+        snprintf(buffer, buffer_size, "R%-2d ", i);
+        strncat(dest, buffer, buffer_size);
+    }
+    strncat(dest, "\n", buffer_size);
+
+    for (int i = 0; i < rows; i++) {
+        snprintf(buffer, buffer_size, "P%-3d", i);
+        strncat(dest, buffer, buffer_size);
+        for (int j = 0; j < cols; j++) {
+            snprintf(buffer, buffer_size, "%-3d ", matrix[i * cols + j]);
+            strncat(dest, buffer, buffer_size);
+        }
+        if (i != rows - 1) strncat(dest, "\n", buffer_size);
+    }
+}
+
+void output_stats() {
+    printf("\n");
+    printf("| STATISTICS |\n");
+    printf("--REQUESTS\n");
+    printf("\t%-12s %d\n", "DENIED:", stats.denied_requests);
+    printf("\t%-12s %d\n", "GRANTED:", stats.granted_requests);
+    printf("\t%-12s %d\n", "TOTAL:", stats.granted_requests + stats.denied_requests);
+    printf("--TERMINATIONS\n");
+    printf("\t%-12s %d\n", "TOTAL:", stats.terminations);
+    printf("--RELEASES\n");
+    printf("\t%-12s %d\n", "TOTAL:", stats.releases);
+    printf("--SIMULATED TIME\n");
+    printf("\t%-12s %ld\n", "SECONDS:", shared_mem->sys_clock.seconds);
+    printf("\t%-12s %ld\n", "NANOSECONDS:", shared_mem->sys_clock.nanoseconds);
+    printf("\n");
 }
 
 void save_to_log(char* text) {
