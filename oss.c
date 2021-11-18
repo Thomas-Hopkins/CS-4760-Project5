@@ -231,6 +231,7 @@ void try_spawn_child() {
 
 // Handle children processes requests over message queues
 void handle_processes() {
+    char log_buf[100];
     // Return if no process in queue
     int sim_pid = queue_peek(&proc_queue);
     if (sim_pid < 0) return;
@@ -239,14 +240,22 @@ void handle_processes() {
     msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
     send_msg(&msg, PROC_MSG, false);
 
+    snprintf(log_buf, 100, "OSS sent run message to P%d at %ld:%ld", sim_pid, shared_mem->sys_clock.seconds, shared_mem->sys_clock.nanoseconds);
+    save_to_log(log_buf);
+    add_time(&shared_mem->sys_clock, 0, rand() % 10000);
+
+
     strncpy(msg.msg_text, "", MSG_BUFFER_LEN);
     msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
     recieve_msg(&msg, OSS_MSG, true);
 
+    add_time(&shared_mem->sys_clock, 0, rand() % 10000);
     char* cmd = strtok(msg.msg_text, " ");
 
     // If request command
     if (strncmp(cmd, "request", MSG_BUFFER_LEN) == 0) {
+        snprintf(log_buf, 100, "OSS recieved request from P%d for some resources at %ld:%ld", sim_pid, shared_mem->sys_clock.seconds, shared_mem->sys_clock.nanoseconds);
+        save_to_log(log_buf);
         int resources[MAX_RES_INSTANCES];
         // Get all resources requested
         for (int i = 0; i < MAX_RES_INSTANCES; i++) {
@@ -258,10 +267,12 @@ void handle_processes() {
         for (int i = 0; i < MAX_RES_INSTANCES; i++) {
             shared_mem->process_table->allow_res[i] = resources[i];
         }
+        add_time(&shared_mem->sys_clock, 0, rand() % 10000);
 
         // If we are deadlock safe then we can move on
         if (is_safe(sim_pid, resources)) {
-
+            snprintf(log_buf, 100, "\tSafe state, granting request");
+            save_to_log(log_buf);
             // Send acquired message
             strncpy(msg.msg_text, "acquired", MSG_BUFFER_LEN);
             msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
@@ -269,27 +280,33 @@ void handle_processes() {
             stats.granted_requests++;
         }
         else {
-            strncpy(msg.msg_text, "unsafe", MSG_BUFFER_LEN);
+            snprintf(log_buf, 100, "\tUnsafe state, denying request");
+            save_to_log(log_buf);
+            strncpy(msg.msg_text, "denied", MSG_BUFFER_LEN);
             msg.msg_type = shared_mem->process_table[sim_pid].actual_pid;
             send_msg(&msg, PROC_MSG, false);
             stats.denied_requests++;
         }
     }
     else if (strncmp(cmd, "release", MSG_BUFFER_LEN) == 0) {
+        snprintf(log_buf, 100, "OSS releasing resources for P%d at %ld:%ld", sim_pid, shared_mem->sys_clock.seconds, shared_mem->sys_clock.nanoseconds);
+        save_to_log(log_buf);
         // Release any allocated resources this process has and reset its max resources
         int num_res = 0;
         for (int i = 0; i < MAX_RES_INSTANCES; i++) {
             if (shared_mem->process_table[sim_pid].allow_res[i] > 0) {
-                printf("Releasing resource %d with %d instances\n", i, shared_mem->process_table[sim_pid].allow_res[i]);
+                snprintf(log_buf, 100, "\tReleasing resource %d with %d instances", i, shared_mem->process_table[sim_pid].allow_res[i]);
+                save_to_log(log_buf);
                 shared_mem->process_table[sim_pid].allow_res[i] = 0;
                 num_res++;
+                add_time(&shared_mem->sys_clock, 0, rand() % 100);
             }
         }
         stats.releases++;
 
         // If we had no resources notify
         if (num_res <= 0) {
-            printf("No resources to be released\n");
+            save_to_log("\tNo resources to release");
         }
     }
     else if (strncmp(cmd, "terminate", MSG_BUFFER_LEN) == 0) {
@@ -297,17 +314,19 @@ void handle_processes() {
         int num_res = 0;
         for (int i = 0; i < MAX_RES_INSTANCES; i++) {
             if (shared_mem->process_table[sim_pid].allow_res[i] > 0) {
-                printf("Releasing resource %d with %d instances\n", i, shared_mem->process_table[sim_pid].allow_res[i]);
+                snprintf(log_buf, 100, "\tReleasing resource %d with %d instances", i, shared_mem->process_table[sim_pid].allow_res[i]);
+                save_to_log(log_buf);
                 shared_mem->process_table[sim_pid].max_res[i] = 0;
                 shared_mem->process_table[sim_pid].allow_res[i] = 0;
                 num_res++;
+                add_time(&shared_mem->sys_clock, 0, rand() % 100);
             }
         }
         stats.terminations++;
 
         // If we had no resources notify
         if (num_res <= 0) {
-            printf("No resources to be released\n");
+            save_to_log("\tNo resources to release");
         }
 
         // Add some time for handling a process (0.1ms)
@@ -328,6 +347,10 @@ void handle_processes() {
 }
 
 bool is_safe(int sim_pid, int requests[MAX_RES_INSTANCES]) {
+    char log_buf[100];
+    snprintf(log_buf, 100, "OSS running deadlock detection at %ld:%ld", shared_mem->sys_clock.seconds, shared_mem->sys_clock.nanoseconds);
+    add_time(&shared_mem->sys_clock, 0, rand() % 1000000);
+    save_to_log(log_buf);
 
     memcpy(&copy_queue, &proc_queue, sizeof(struct Queue));
     int size = copy_queue.size;
@@ -366,18 +389,23 @@ bool is_safe(int sim_pid, int requests[MAX_RES_INSTANCES]) {
     if (VERBOSE_MODE && ((stats.granted_requests % 20) == 0)) {
         int buf_size = size * MAX_RES_INSTANCES * 8;
         char buf[buf_size];
+        save_to_log("Need Matrix:");
         matrix_to_string(buf, buf_size, &need[0][0], size, MAX_RES_INSTANCES);
         save_to_log(buf);
 
+        save_to_log("Maximum Matrix:");
         matrix_to_string(buf, buf_size, &maximum[0][0], size, MAX_RES_INSTANCES);
         save_to_log(buf);
 
+        save_to_log("Allocated Matrix:");
         matrix_to_string(buf, buf_size, &allocated[0][0], size, MAX_RES_INSTANCES);
         save_to_log(buf);
 
+        save_to_log("Available Array:");
         matrix_to_string(buf, buf_size, available, 1, MAX_RES_INSTANCES);
         save_to_log(buf);
 
+        save_to_log("Request Array:");
         matrix_to_string(buf, buf_size, requests, 1, MAX_RES_INSTANCES);
         save_to_log(buf);
     }
@@ -465,7 +493,7 @@ void save_to_log(char* text) {
         return;
 	}
 
-    fprintf(file_log, "%s: %ld.%ld: %s\n", exe_name, shared_mem->sys_clock.seconds, shared_mem->sys_clock.nanoseconds, text);
+    fprintf(file_log, "%s\n", text);
 
     fclose(file_log);
 }
